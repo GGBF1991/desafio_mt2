@@ -20,7 +20,7 @@ import joblib
 
 # Base path definition
 BASE_PATH = Path(__file__).parent if '__file__' in globals() else Path().resolve()
-MODEL_DIR = "mlruns"
+MLFLOW_DIR = BASE_PATH / "mlruns"
 OUTPUT_PATH = BASE_PATH / "solution.csv"
 
 def load_datasets(data_dir: str = "data") -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -620,7 +620,7 @@ def build_mlp(input_dim, output_dim):
     return model
 
 
-def plot_training_history(history, product, group_id, save_path=None):
+def plot_training_history(history):
     fig, ax = plt.subplots(1, 2, figsize=(4, 2))
     ax[0].plot(history.history['loss'], label='Treino')
     ax[0].plot(history.history['val_loss'], label='Validação')
@@ -637,13 +637,10 @@ def plot_training_history(history, product, group_id, save_path=None):
     ax[1].legend()
 
     plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path)
-    else:
-        plt.show()
+    plt.show()
     plt.close()
 
-def train_mlp_model(X_train, y_train, X_val, y_val, product, group_id):
+def train_mlp_model(X_train, y_train, X_val, y_val, product, group_id, experiment_id):
     scaler_x = StandardScaler()
     scaler_y = StandardScaler()
 
@@ -654,13 +651,13 @@ def train_mlp_model(X_train, y_train, X_val, y_val, product, group_id):
 
     model = build_mlp(X_train.shape[1], y_train.shape[1])
     
-    checkpoint_path = os.path.join(MODEL_DIR, f"mlp_{product}_{group_id}.keras")
+    checkpoint_path = os.path.join(MLFLOW_DIR, f"mlp_{product}_{group_id}.keras")
     callbacks = [
         ModelCheckpoint(checkpoint_path, monitor='val_loss', save_best_only=True),
-        EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True)
+        EarlyStopping(monitor='val_loss', patience=16, restore_best_weights=True)
     ]
 
-    with mlflow.start_run(run_name=f"{product}_{group_id}"):
+    with mlflow.start_run(run_name=f"{product}_{group_id}", experiment_id=experiment_id):
         mlflow.log_params({
             "product": product,
             "group_id": group_id,
@@ -672,8 +669,8 @@ def train_mlp_model(X_train, y_train, X_val, y_val, product, group_id):
         history = model.fit(
             X_train_scaled, y_train_scaled,
             validation_data=(X_val_scaled, y_val_scaled),
-            epochs=120,
-            batch_size=64,
+            epochs=80,
+            batch_size=32,
             callbacks=callbacks,
             verbose=0,
             shuffle=True
@@ -689,13 +686,13 @@ def train_mlp_model(X_train, y_train, X_val, y_val, product, group_id):
         y_pred = model.predict(X_val_scaled)
         y_val_inv = scaler_y.inverse_transform(y_val_scaled)
         y_pred_inv = scaler_y.inverse_transform(y_pred)
-        for i, col in enumerate(y_train.shape[1] if hasattr(y_train, 'shape') else range(len(y_train))):
+        for i in range(y_train.shape[1] if hasattr(y_train, 'shape') else len(y_train)):
             r2 = r2_score(y_val_inv[:, i], y_pred_inv[:, i])
             mlflow.log_metric(f"r2_output_{i}", r2)
 
         # Salvar e logar gráfico de histórico
         fig_path = os.path.join(tempfile.gettempdir(), f"history_{product}_{group_id}.png")
-        plot_training_history(history, product, group_id, save_path=fig_path)
+        plot_training_history(history)
         mlflow.log_artifact(fig_path)
 
         # Logar modelo e scalers
@@ -709,10 +706,9 @@ def train_mlp_model(X_train, y_train, X_val, y_val, product, group_id):
         mlflow.log_artifact(scaler_x_path)
         mlflow.log_artifact(scaler_y_path)
 
-    return model, scaler_x, scaler_y, checkpoint_path
+    return model, scaler_x, scaler_y, checkpoint_path, history
 
-
-def run_training_pipeline(df_feat, x_cols, y_cols, save_dir, build_model_fn = build_mlp):
+def run_training_pipeline(df_feat, x_cols, y_cols, experiment_id):
     """
     Executa o treinamento para cada combinação de produto e grupo.
     """
@@ -738,7 +734,7 @@ def run_training_pipeline(df_feat, x_cols, y_cols, save_dir, build_model_fn = bu
             y_val = val_grp[y_cols].values
 
             model, scaler_x, scaler_y, model_path, history = train_mlp_model(
-                X_train, y_train, X_val, y_val, product, group_id)
+                X_train, y_train, X_val, y_val, product, group_id, experiment_id)
 
             mlp_models[(product, group_id)] = {
                 'model': model,
