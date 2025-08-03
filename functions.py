@@ -13,22 +13,23 @@ from sklearn.preprocessing import StandardScaler
 from tensorflow.keras import Input
 from sklearn.metrics import mean_absolute_error, r2_score
 import mlflow
-import mlflow.tensorflow
 import tempfile
 import joblib
+import random
 
-
-# Base path definition
+# Path definitions
 BASE_PATH = Path(__file__).parent if '__file__' in globals() else Path().resolve()
 MLFLOW_DIR = BASE_PATH / "mlruns"
 OUTPUT_PATH = BASE_PATH / "solution.csv"
+DATA_PATH = BASE_PATH / "data"
 
-def load_datasets(data_dir: str = "data") -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+# Janelas para o cálculo das features
+WINDOWS = [180, 90, 60, 34, 28, 21, 14, 7]
+
+#Funções
+def load_datasets() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Load the three core datasets: orders, marketing points, and prices.
-
-    Parameters:
-        data_dir (str): Name of the folder containing the CSV files. Defaults to "data".
 
     Returns:
         Tuple containing:
@@ -36,11 +37,10 @@ def load_datasets(data_dir: str = "data") -> tuple[pd.DataFrame, pd.DataFrame, p
             - points_df (pd.DataFrame): marketing points with columns ['product','client','date','points'].
             - price_df (pd.DataFrame): product prices with columns ['product','date','price'].
     """
-    data_path = BASE_PATH / data_dir
 
-    orders_df = pd.read_csv(data_path / "historical_orders.csv")
-    points_df = pd.read_csv(data_path / "marketing_points.csv")
-    price_df  = pd.read_csv(data_path / "price.csv")
+    orders_df = pd.read_csv(DATA_PATH / "historical_orders.csv")
+    points_df = pd.read_csv(DATA_PATH / "marketing_points.csv")
+    price_df  = pd.read_csv(DATA_PATH / "price.csv")
 
     return orders_df, points_df, price_df
 
@@ -791,7 +791,6 @@ def evaluate_model(product, group_id, models, test_df, x_cols, y_cols):
 
     return df_result
 
-
 def predict_mlp(product, group_id, X_test, models):
     """
     Gera predições para um modelo MLP normalizado.
@@ -860,9 +859,6 @@ def get_history_for_pair(df_gp, product, group_id, lookback=180):
     # Pode ter outras colunas extras se quiser, mas vamos manter só essenciais
     return grp.loc[last - pd.Timedelta(days=lookback-1): last, cols_needed].copy(), last
 
-
-WINDOWS = [180, 90, 60, 34, 28, 21, 14, 7]
-
 def enrich_history_with_features(h):
     """
     Cria colunas:
@@ -876,7 +872,6 @@ def enrich_history_with_features(h):
         h[f'points_ma_{w}'] = h['points'].rolling(w, min_periods=1).mean()
         h[f'spend_ma_{w}'] = h['spend_lag1'].rolling(w, min_periods=1).mean()
     return h
-
 
 def compute_response_curve(history, model_info, x_cols, y_cols, B=5000, step=1):
     model, scaler_x, scaler_y = model_info['model'], model_info['scaler_x'], model_info['scaler_y']
@@ -894,7 +889,6 @@ def compute_response_curve(history, model_info, x_cols, y_cols, B=5000, step=1):
         yhat = scaler_y.inverse_transform(yhat_s)[0]
         sp[i] = yhat.mean()
     return pts, sp
-
 
 def predict_todays_spend(df_gp, alloc, x_cols, y_cols, mlp_models, lookback=180):
     next_s = {}
@@ -921,10 +915,22 @@ def recursive_allocation_forecast(
 
     for _ in range(steps):
         response_curves = {}
+
         for key, info in mlp_models.items():
             h, _ = get_history_for_pair(history, *key, lookback)
             pts, sp = compute_response_curve(h, info, x_cols, y_cols, B=B, step=step)
             response_curves[key] = (pts, sp)
+
+            # ---- Plot the response curve ----
+            product, group_id = key
+            plt.figure(figsize=(3, 2))  # Small plot
+            plt.plot(pts, sp, marker='o')
+            plt.xlabel("Marketing points")
+            plt.ylabel("Expected spend")
+            plt.title(f"Response Curve - Product: {product}, Group: {group_id}", fontsize=8)
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
 
         alloc = allocate_budget_dp(response_curves, B=B, step=step)
 
@@ -938,8 +944,8 @@ def recursive_allocation_forecast(
                 'product': product,
                 'group_id': group_id,
                 'date': new_date,
-                'points': x,           # orçamento aplicado (feature)
-                'total_spend': s_hat   # gasto previsto (target)
+                'points': x,           # allocated marketing points (feature)
+                'total_spend': s_hat   # predicted spend (target)
             })
             records.append(new_rows[-1])
 
@@ -992,8 +998,6 @@ def allocate_budget_dp(response_curves, B=5000, step=1):
         b -= k
 
     return alloc
-
-import random
 
 def simple_distribute_points(clients, P):
     """
