@@ -33,7 +33,7 @@ desafio_mt2/
 
 1. Clone o repositório:
    ```bash
-   git clone https://github.com/seuusuario/desafio_mt2.git
+   git clone https://github.com/GGBF1991/desafio_mt2.git
    cd desafio_mt2
 2. Crie um ambiente virtual:
     python -m venv .venv
