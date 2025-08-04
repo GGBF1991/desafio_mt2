@@ -19,7 +19,7 @@ As previsões são feitas para janelas diárias, permitindo estratégias de aloc
 > 💡 *Esta é uma versão inicial. O pipeline pode ser significativamente melhorado com uma análise mais profunda das features e com a geração de novas variáveis que capturem o comportamento e a sazonalidade dos clientes.*
 
 ## 📂 Estrutura do Projeto
-
+"""
 desafio_mt2/
 ├── data/ # Dados de entrada e saída
 ├── mlruns/ # Rastreamento MLflow, Modelos treinados (.keras) e scalers
@@ -28,6 +28,7 @@ desafio_mt2/
 ├── solution.csv # Alocação final recomendada
 ├── requirements.txt
 └── README.md
+"""
 
 ## 🚀 Como executar
 
